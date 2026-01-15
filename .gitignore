@@ -1,0 +1,18 @@
+# Ignorar arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Ignorar Node.js (Web)
+**/node_modules/
+**/.next/
+**/out/
+**/dist/
+**/.env.local
+
+# Ignorar Flutter/Dart (Mobile)
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/android/.gradle
+**/local.properties

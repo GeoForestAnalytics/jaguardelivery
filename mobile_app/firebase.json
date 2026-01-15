@@ -1,0 +1,39 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "appdeliverymoto",
+          "appId": "1:872160576746:android:418b65411ee385dc5d4393",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "appdeliverymoto",
+          "configurations": {
+            "android": "1:872160576746:android:418b65411ee385dc5d4393",
+            "ios": "1:872160576746:ios:6f882416fe1b98645d4393",
+            "macos": "1:872160576746:ios:6f882416fe1b98645d4393",
+            "web": "1:872160576746:web:27217bf1018e3ebd5d4393",
+            "windows": "1:872160576746:web:ed9c7d336e4ccff25d4393"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
