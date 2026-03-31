@@ -1,37 +1,32 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/notificacao_service.dart';
 
 class DetalhesCorridaSheet extends StatefulWidget {
-  final DocumentSnapshot pedido;
+  final Map<String, dynamic> pedido;
 
-  const DetalhesCorridaSheet({required this.pedido});
+  const DetalhesCorridaSheet({required this.pedido, Key? key}) : super(key: key);
 
   @override
   _DetalhesCorridaSheetState createState() => _DetalhesCorridaSheetState();
 }
 
 class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
-  bool _processando = false; // Para evitar cliques duplos e mostrar loading
+  bool _processando = false;
 
   @override
   Widget build(BuildContext context) {
-    // Extraindo dados com segurança
-    final data = widget.pedido.data() as Map<String, dynamic>;
-    
-    final String nome = data['nome_solicitante'] ?? 'Cliente';
-    final double valor = data['valor']?.toDouble() ?? 0.0;
+    final data = widget.pedido;
+
+    final String nome     = data['nome_solicitante'] ?? 'Cliente';
+    final double valor    = (data['valor'] ?? 0).toDouble();
     final String endereco = data['endereco_destino'] ?? 'Não informado';
-    final String obs = data['observacao'] ?? '';
-    // final String telefone = data['telefone_solicitante'] ?? ''; // Usado na função de whats
-    
-    // Novos Campos
-    final double distancia = data['distancia_km']?.toDouble() ?? 0.0;
-    final String tipoServico = data['tipo_servico'] ?? 'PASSAGEIRO'; 
+    final String obs      = data['observacao'] ?? '';
+    final double distancia = (data['distancia_km'] ?? 0).toDouble();
+    final String tipoServico = data['tipo_servico'] ?? 'PASSAGEIRO';
     final String? itemEntrega = data['item_entrega'];
 
-    // Definição de Cores e Ícones
     final bool isEntrega = tipoServico == 'ENTREGA';
     final Color corTema = isEntrega ? Colors.brown : Colors.indigo;
     final IconData iconeTema = isEntrega ? Icons.local_shipping : Icons.person;
@@ -42,8 +37,7 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          
-          // 1. CABEÇALHO (Valor e Distância)
+          // Cabeçalho: valor e distância
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -51,8 +45,8 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text("Valor da Corrida", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  Text("R\$ ${valor.toStringAsFixed(2)}", 
-                       style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green[700])),
+                  Text("R\$ ${valor.toStringAsFixed(2)}",
+                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green[700])),
                 ],
               ),
               Container(
@@ -60,28 +54,29 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
                 decoration: BoxDecoration(
                   color: Colors.grey[100],
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade300)
+                  border: Border.all(color: Colors.grey.shade300),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.directions, size: 16, color: Colors.grey[700]),
                     SizedBox(width: 4),
-                    Text("${distancia.toStringAsFixed(1)} km", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[800])),
+                    Text("${distancia.toStringAsFixed(1)} km",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[800])),
                   ],
                 ),
-              )
+              ),
             ],
           ),
-          
+
           Divider(height: 30),
 
-          // 2. TIPO DE SERVIÇO
+          // Tipo de serviço
           Container(
             padding: EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: corTema.withOpacity(0.1),
+              color: corTema.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: corTema.withOpacity(0.3))
+              border: Border.all(color: corTema.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
@@ -90,26 +85,25 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(isEntrega ? "ENTREGA DE ENCOMENDA" : "TRANSPORTE DE PASSAGEIRO", 
-                         style: TextStyle(fontWeight: FontWeight.bold, color: corTema, fontSize: 13)),
+                    Text(isEntrega ? "ENTREGA DE ENCOMENDA" : "TRANSPORTE DE PASSAGEIRO",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: corTema, fontSize: 13)),
                     if (isEntrega && itemEntrega != null)
                       Text("Item: $itemEntrega", style: TextStyle(color: Colors.black87, fontSize: 16)),
                   ],
-                )
+                ),
               ],
             ),
           ),
 
           SizedBox(height: 20),
-          
-          // 3. DETALHES
+
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: CircleAvatar(backgroundColor: Colors.grey[200], child: Icon(Icons.location_on, color: Colors.red)),
             title: Text(endereco, style: TextStyle(fontWeight: FontWeight.w500)),
             subtitle: Text("Destino Final"),
           ),
-          
+
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: CircleAvatar(backgroundColor: Colors.grey[200], child: Icon(Icons.person, color: Colors.black)),
@@ -133,103 +127,106 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
 
           SizedBox(height: 10),
 
-          // 4. BOTÃO ACEITAR
           SizedBox(
             height: 55,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[600], 
+                backgroundColor: Colors.green[600],
                 foregroundColor: Colors.white,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              icon: _processando 
-                  ? Container(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+              icon: _processando
+                  ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : Icon(Icons.phone),
               label: Text(_processando ? "GARANTINDO CORRIDA..." : "ACEITAR CORRIDA"),
-              onPressed: _processando ? null : () => _tentarAceitarCorrida(context, data),
+              onPressed: _processando ? null : _tentarAceitarCorrida,
             ),
           ),
-          
+
           SizedBox(height: 10),
-          Center(child: Text("Ao aceitar, você será redirecionado para o WhatsApp.", style: TextStyle(fontSize: 10, color: Colors.grey))),
+          Center(
+            child: Text("Ao aceitar, você será redirecionado para o WhatsApp.",
+                style: TextStyle(fontSize: 10, color: Colors.grey)),
+          ),
         ],
       ),
     );
   }
 
-  // --- LÓGICA DE TRANSAÇÃO ---
-  void _tentarAceitarCorrida(BuildContext context, Map<String, dynamic> dadosPedido) async {
+  void _tentarAceitarCorrida() async {
     setState(() => _processando = true);
-    
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
 
-    final docRef = widget.pedido.reference;
+    final supabase = Supabase.instance.client;
+    final motoboyId = supabase.auth.currentUser?.id;
+    if (motoboyId == null) return;
+
+    final corridaId = widget.pedido['id'].toString();
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        DocumentSnapshot snapshot = await transaction.get(docRef);
-
-        if (!snapshot.exists) throw Exception("Pedido não existe mais!");
-        
-        String statusAtual = snapshot.get('status');
-        if (statusAtual != 'PENDENTE') throw Exception("Esta corrida já foi pega!");
-
-        transaction.update(docRef, {
-          'status': 'ACEITO',
-          'id_motoboy': user.uid,
-          'data_aceite': FieldValue.serverTimestamp(),
-        });
+      // Aceite atômico via função RPC (evita corrida dupla)
+      final aceito = await supabase.rpc('aceitar_corrida', params: {
+        'p_corrida_id': corridaId,
+        'p_motoboy_id': motoboyId,
       });
 
-      if (mounted) {
-        Navigator.pop(context);
-        _abrirWhatsApp(dadosPedido);
-      }
+      if (!mounted) return;
 
+      if (aceito == true) {
+        // Notifica o cliente que o motoboy aceitou
+        final idCliente  = widget.pedido['id_solicitante']?.toString() ?? '';
+        final nomeMoto   = (await Supabase.instance.client
+            .from('usuarios')
+            .select('nome')
+            .eq('id', motoboyId)
+            .maybeSingle())?['nome'] as String? ?? 'Motoboy';
+        if (idCliente.isNotEmpty) {
+          await NotificacaoService.corridaAceita(
+              idCliente: idCliente, nomeMotoboy: nomeMoto);
+        }
+        if (!mounted) return;
+        Navigator.pop(context);
+        _abrirWhatsApp(widget.pedido);
+      } else {
+        setState(() => _processando = false);
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Esta corrida já foi pega!"), backgroundColor: Colors.red),
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _processando = false);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll("Exception: ", "")), backgroundColor: Colors.red),
+          SnackBar(content: Text("Erro ao aceitar corrida."), backgroundColor: Colors.red),
         );
       }
     }
   }
 
-  // --- NOVA MENSAGEM DO WHATSAPP ---
   void _abrirWhatsApp(Map<String, dynamic> data) async {
-    String telefone = data['telefone_solicitante'] ?? '';
-    String nome = data['nome_solicitante'] ?? 'Cliente';
-    double valor = data['valor']?.toDouble() ?? 0.0;
-    
-    // Pegando o endereço que o cliente digitou
-    String endereco = data['endereco_destino'] ?? 'Endereço na localização';
-    String obs = data['observacao'] ?? '';
+    final String telefone = data['telefone_solicitante'] ?? '';
+    final String nome     = data['nome_solicitante'] ?? 'Cliente';
+    final double valor    = (data['valor'] ?? 0).toDouble();
+    final String endereco = data['endereco_destino'] ?? 'Endereço na localização';
+    final String obs      = data['observacao'] ?? '';
 
-    String numeroLimpo = telefone.replaceAll(RegExp(r'[^0-9]'), '');
-    
-    // --- MENSAGEM ATUALIZADA ---
-    String mensagem = 
+    final String numeroLimpo = telefone.replaceAll(RegExp(r'[^0-9]'), '');
+
+    String mensagem =
         "Olá *$nome*! 🏍️\n\n"
         "Acabei de aceitar sua solicitação no App.\n"
         "💰 Valor: *R\$ ${valor.toStringAsFixed(2)}*\n\n"
         "📍 *Confirmando Destino:*\n$endereco\n";
-    
-    if (obs.isNotEmpty) {
-      mensagem += "📝 Obs: $obs\n";
-    }
 
+    if (obs.isNotEmpty) mensagem += "📝 Obs: $obs\n";
     mensagem += "\nEstou a caminho!";
 
     final url = Uri.parse("https://wa.me/55$numeroLimpo?text=${Uri.encodeComponent(mensagem)}");
 
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      print("Não foi possível abrir o WhatsApp: $url");
     }
   }
 }

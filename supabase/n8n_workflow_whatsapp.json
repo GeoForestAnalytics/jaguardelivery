@@ -1,0 +1,208 @@
+{
+  "name": "Jaguar Delivery — Chatbot WhatsApp",
+  "nodes": [
+    {
+      "id": "node-webhook",
+      "name": "Webhook Evolution",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300],
+      "webhookId": "jaguar-whatsapp",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jaguar-whatsapp",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "node-filtrar",
+      "name": "É mensagem válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [320, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-event",
+              "leftValue": "={{ $json.event }}",
+              "rightValue": "messages.upsert",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "cond-from-me",
+              "leftValue": "={{ $json.data.key.fromMe }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "node-get-comercio",
+      "name": "Buscar Comercio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 200],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://SEU_SUPABASE_URL/rest/v1/usuarios?whatsapp_instancia=eq.{{ $json.instance }}&select=id,nome_fantasia",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "SUA_SUPABASE_SERVICE_ROLE_KEY" },
+            { "name": "Authorization", "value": "Bearer SUA_SUPABASE_SERVICE_ROLE_KEY" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-get-estado",
+      "name": "Buscar Estado Conversa",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 400],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://SEU_SUPABASE_URL/rest/v1/whatsapp_conversas?telefone=eq.{{ $('Webhook Evolution').first().json.data.key.remoteJid }}&instancia=eq.{{ $('Webhook Evolution').first().json.instance }}&select=*",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "SUA_SUPABASE_SERVICE_ROLE_KEY" },
+            { "name": "Authorization", "value": "Bearer SUA_SUPABASE_SERVICE_ROLE_KEY" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-logica",
+      "name": "Lógica do Chatbot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ── Entrada ─────────────────────────────────────────\nconst webhook  = $('Webhook Evolution').first().json;\nconst comercios = $('Buscar Comercio').all().map(i => i.json);\nconst estados   = $('Buscar Estado Conversa').all().map(i => i.json);\n\nconst instance = webhook.instance;\nconst telefone = webhook.data.key.remoteJid;\nconst mensagem = (\n  webhook.data.message?.conversation ||\n  webhook.data.message?.extendedTextMessage?.text ||\n  ''\n).trim();\n\nconst comercio   = comercios[0] || {};\nconst comercioId = comercio.id || null;\nconst nomeComercio = comercio.nome_fantasia || 'nosso estabelecimento';\n\nconst estado = estados[0] || {};\nconst etapa  = estado.etapa || 'INICIO';\n\n// ── Lógica de estado ────────────────────────────────\nlet novaEtapa  = etapa;\nlet resposta   = '';\nlet dadosExtra = {};\nlet criarPedido = false;\n\nswitch (etapa) {\n  case 'INICIO':\n    novaEtapa = 'AGUARDANDO_NOME';\n    resposta  = `👋 Olá! Bem-vindo ao *${nomeComercio}*!\\n\\nPara fazermos sua entrega, preciso de algumas informações.\\n\\nQual é o seu *nome completo*?`;\n    break;\n\n  case 'AGUARDANDO_NOME':\n    if (mensagem.length < 2) {\n      resposta = 'Por favor, informe seu nome completo. 😊';\n      break;\n    }\n    dadosExtra.nome = mensagem;\n    novaEtapa = 'AGUARDANDO_ENDERECO';\n    resposta  = `Olá, *${mensagem}*! 😊\\n\\nQual é o *endereço completo* de entrega?\\n_(Ex: Rua das Flores, 123 - Centro)_`;\n    break;\n\n  case 'AGUARDANDO_ENDERECO':\n    if (mensagem.length < 5) {\n      resposta = 'Por favor, informe o endereço completo (rua, número, bairro). 📍';\n      break;\n    }\n    dadosExtra.endereco = mensagem;\n    novaEtapa = 'AGUARDANDO_PEDIDO';\n    resposta  = `📍 Endereço confirmado: *${mensagem}*\\n\\nAgora me diga: o que você gostaria de *pedir*?\\n_(Descreva os itens do pedido)_`;\n    break;\n\n  case 'AGUARDANDO_PEDIDO':\n    if (mensagem.length < 2) {\n      resposta = 'Por favor, descreva o que deseja pedir. 🛍️';\n      break;\n    }\n    dadosExtra.pedido = mensagem;\n    novaEtapa = 'AGUARDANDO_PAGAMENTO';\n    resposta  = `🛍️ Pedido anotado: *${mensagem}*\\n\\nComo vai pagar?\\n\\n1️⃣  PIX\\n2️⃣  Dinheiro\\n3️⃣  Cartão`;\n    break;\n\n  case 'AGUARDANDO_PAGAMENTO': {\n    const msg = mensagem.toLowerCase();\n    let pagamento = 'A definir';\n    if (msg.includes('1') || msg.includes('pix'))      pagamento = 'PIX';\n    else if (msg.includes('2') || msg.includes('din')) pagamento = 'DINHEIRO';\n    else if (msg.includes('3') || msg.includes('cart'))pagamento = 'CARTÃO';\n\n    dadosExtra.pagamento = pagamento;\n    novaEtapa   = 'FINALIZADO';\n    criarPedido = true;\n    resposta    = `✅ *Pedido confirmado!*\\n\\n👤 ${estado.nome}\\n📦 ${estado.pedido}\\n📍 ${estado.endereco}\\n💳 ${pagamento}\\n\\nEm breve um motoboy vai buscar o seu pedido! 🏍️\\n\\nQualquer dúvida é só chamar aqui!`;\n    break;\n  }\n\n  case 'FINALIZADO':\n    // Cliente envia nova mensagem após pedido finalizado → recomeça\n    novaEtapa = 'AGUARDANDO_PEDIDO';\n    resposta  = `Olá de novo, *${estado.nome}*! 😊\\n\\nQuer fazer mais um pedido? Me diga o que deseja!`;\n    break;\n\n  default:\n    novaEtapa = 'INICIO';\n    resposta  = '👋 Olá! Para começar um novo pedido, qual é o seu *nome*?';\n}\n\n// ── Saída ─────────────────────────────────────────────\nreturn [{\n  json: {\n    instance,\n    telefone,\n    resposta,\n    criarPedido,\n    upsertData: {\n      telefone,\n      instancia:     instance,\n      comercio_id:   comercioId,\n      etapa:         novaEtapa,\n      nome:          dadosExtra.nome     || estado.nome     || null,\n      endereco:      dadosExtra.endereco || estado.endereco || null,\n      pedido:        dadosExtra.pedido   || estado.pedido   || null,\n      pagamento:     dadosExtra.pagamento|| estado.pagamento|| null,\n      atualizado_em: new Date().toISOString(),\n    },\n    pedidoData: criarPedido ? {\n      comercio_id:      comercioId,\n      cliente_nome:     dadosExtra.nome     || estado.nome,\n      cliente_tel:      telefone.replace('@s.whatsapp.net', ''),\n      endereco_destino: dadosExtra.endereco || estado.endereco,\n      descricao:        dadosExtra.pedido   || estado.pedido,\n      forma_pagamento:  dadosExtra.pagamento,\n      valor_total:      0,\n      status:           'PENDENTE',\n      criado_em:        new Date().toISOString(),\n    } : null,\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-upsert-estado",
+      "name": "Salvar Estado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU_SUPABASE_URL/rest/v1/whatsapp_conversas",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",         "value": "SUA_SUPABASE_SERVICE_ROLE_KEY" },
+            { "name": "Authorization",  "value": "Bearer SUA_SUPABASE_SERVICE_ROLE_KEY" },
+            { "name": "Prefer",         "value": "resolution=merge-duplicates" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.upsertData) }}"
+      }
+    },
+    {
+      "id": "node-if-pedido",
+      "name": "Criar pedido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "cond-criar",
+              "leftValue": "={{ $('Lógica do Chatbot').first().json.criarPedido }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "node-criar-pedido",
+      "name": "Criar Pedido Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 180],
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU_SUPABASE_URL/rest/v1/pedidos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "SUA_SUPABASE_SERVICE_ROLE_KEY" },
+            { "name": "Authorization", "value": "Bearer SUA_SUPABASE_SERVICE_ROLE_KEY" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($('Lógica do Chatbot').first().json.pedidoData) }}"
+      }
+    },
+    {
+      "id": "node-enviar-msg",
+      "name": "Enviar Mensagem WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1420, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://SEU_EVOLUTION_URL/message/sendText/{{ $('Lógica do Chatbot').first().json.instance }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "apikey",       "value": "SUA_EVOLUTION_API_KEY" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"number\": \"{{ $('Lógica do Chatbot').first().json.telefone }}\",\n  \"text\": \"{{ $('Lógica do Chatbot').first().json.resposta }}\"\n}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Evolution": {
+      "main": [[{ "node": "É mensagem válida?", "type": "main", "index": 0 }]]
+    },
+    "É mensagem válida?": {
+      "main": [
+        [
+          { "node": "Buscar Comercio",         "type": "main", "index": 0 },
+          { "node": "Buscar Estado Conversa",  "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Buscar Comercio":        { "main": [[{ "node": "Lógica do Chatbot", "type": "main", "index": 0 }]] },
+    "Buscar Estado Conversa": { "main": [[{ "node": "Lógica do Chatbot", "type": "main", "index": 0 }]] },
+    "Lógica do Chatbot":      { "main": [[{ "node": "Salvar Estado",     "type": "main", "index": 0 }]] },
+    "Salvar Estado":          { "main": [[{ "node": "Criar pedido?",     "type": "main", "index": 0 }]] },
+    "Criar pedido?": {
+      "main": [
+        [{ "node": "Criar Pedido Supabase",    "type": "main", "index": 0 }],
+        [{ "node": "Enviar Mensagem WhatsApp", "type": "main", "index": 0 }]
+      ]
+    },
+    "Criar Pedido Supabase": { "main": [[{ "node": "Enviar Mensagem WhatsApp", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

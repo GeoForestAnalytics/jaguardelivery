@@ -1,30 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-// 1. AJUSTE AQUI: Adicione o "hide User" para evitar conflito com o Firebase
-import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
-import 'firebase_options.dart'; 
 import 'pages/auth/login_page.dart';
-import 'pages/home/mapa_page.dart';
+import 'pages/roteador_por_tipo.dart';
+import 'services/notificacao_service.dart';
 
 void main() async {
-  // 1. Garante que o motor do Flutter esteja pronto
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Inicia o Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  // 3. Inicia o Supabase
   await Supabase.initialize(
     url: 'https://ecmxxtocvbfbnlpnnqqi.supabase.co',
-    anonKey: 'sb_publishable_zW8lTB422gDal0DSXiTDDg_CQ-WhlBT', 
+    anonKey: 'sb_publishable_zW8lTB422gDal0DSXiTDDg_CQ-WhlBT',
   );
 
-  // 4. Roda o App com Riverpod
+  // Push notifications via OneSignal (não precisa de Firebase)
+  await NotificacaoService.inicializar();
+  await initializeDateFormatting('pt_BR', null);
+
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -50,19 +44,19 @@ class RoteadorDeTelas extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Agora o 'User' aqui será obrigatoriamente o do Firebase
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-        
-        if (snapshot.hasData) {
-          return MapaPage(); 
+
+        final session = snapshot.data?.session;
+        if (session != null) {
+          return const RoteadorPorTipo();
         }
 
-        return LoginPage(); 
+        return LoginPage();
       },
     );
   }
