@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../drawer/perfil_page.dart';
 import '../../drawer/minhas_entregas_page.dart';
+import '../../drawer/historico_cliente_page.dart'; // <--- NOVA IMPORTAÇÃO
 import '../../drawer/faturamento_page.dart';
 import '../../admin/painel_ceo_page.dart';
 import '../../comercio/painel_comercio_page.dart';
@@ -31,7 +32,7 @@ class HomeDrawer extends StatelessWidget {
           if (snapshot.hasData && snapshot.data!.isNotEmpty) {
             final data = snapshot.data!.first;
             nome        = data['nome'] ?? "Usuário";
-            tipoUsuario = data['tipo'] ?? "CLIENTE";
+            tipoUsuario = (data['tipo'] ?? "CLIENTE").toString().toUpperCase();
           }
 
           return ListView(
@@ -48,11 +49,15 @@ class HomeDrawer extends StatelessWidget {
               ),
 
               _itemMenu(context, "Meu Perfil", Icons.person_outline, PerfilPage()),
+              
+              // LÓGICA DE HISTÓRICO AJUSTADA
               _itemMenu(
                 context,
                 souMotoboy ? "Minhas Entregas" : "Meus Pedidos",
                 Icons.history,
-                MinhasEntregasPage(),
+                tipoUsuario == 'CLIENTE' 
+                    ? const HistoricoClientePage() // Perfil passageiro
+                    : MinhasEntregasPage(),        // Perfil Comércio ou Motoboy
               ),
 
               if (souMotoboy)

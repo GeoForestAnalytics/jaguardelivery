@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -26,9 +27,22 @@ class _RastreioEntregaPageState extends State<RastreioEntregaPage> {
   bool _modoSatelite = false;
   DateTime? _ultimoRota;
 
+  // Lógica de ajuste automático de câmera (Estilo Uber)
+  void _ajustarCamera(LatLng posMotoboy, LatLng alvo) {
+    try {
+      final bounds = LatLngBounds.fromPoints([posMotoboy, alvo]);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.only(top: 80, bottom: 150, left: 50, right: 50),
+        ),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _calcularRota(LatLng inicio, LatLng fim) async {
     if (_ultimoRota != null &&
-        DateTime.now().difference(_ultimoRota!).inSeconds < 10) {
+        DateTime.now().difference(_ultimoRota!).inSeconds < 8) {
       return;
     }
     _ultimoRota = DateTime.now();
@@ -93,7 +107,9 @@ class _RastreioEntregaPageState extends State<RastreioEntregaPage> {
               ? LatLng(latMotoboy, lngMotoboy)
               : pontoEntrega;
 
+          // Uber Style: Calcula rota e ajusta zoom automaticamente
           _calcularRota(posMotoboy, pontoEntrega);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _ajustarCamera(posMotoboy, pontoEntrega));
 
           final (Color corStatus, String labelStatus) = switch (status) {
             'ACEITO'     => (Colors.blue,   'A caminho da coleta'),
@@ -110,7 +126,7 @@ class _RastreioEntregaPageState extends State<RastreioEntregaPage> {
                     child: FlutterMap(
                       mapController: _mapController,
                       options: MapOptions(
-                          initialCenter: posMotoboy, initialZoom: 14.0),
+                          initialCenter: posMotoboy, initialZoom: 15.0),
                       children: [
                         TileLayer(
                           urlTemplate: _modoSatelite
@@ -126,7 +142,9 @@ class _RastreioEntregaPageState extends State<RastreioEntregaPage> {
                             Polyline(
                                 points: _rotaPoints,
                                 color: corStatus,
-                                strokeWidth: 5.0),
+                                strokeWidth: 5.0,
+                                borderColor: Colors.white,
+                                borderStrokeWidth: 2.0),
                           ]),
                         MarkerLayer(markers: [
                           Marker(
@@ -161,7 +179,7 @@ class _RastreioEntregaPageState extends State<RastreioEntregaPage> {
                   Container(
                     width: double.infinity,
                     color: Colors.white,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
                     child: Row(
                       children: [
                         Container(
@@ -190,7 +208,7 @@ class _RastreioEntregaPageState extends State<RastreioEntregaPage> {
                           ),
                         ),
                         if (latMotoboy == null)
-                          Text('Aguardando posição...',
+                          Text('Aguardando GPS...',
                               style: TextStyle(
                                   fontSize: 11, color: Colors.orange[700])),
                       ],

@@ -37,7 +37,6 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Cabeçalho: valor e distância
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -68,64 +67,63 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
             ],
           ),
 
-          Divider(height: 30),
+          const Divider(height: 30),
 
-          // Tipo de serviço
           Container(
-            padding: EdgeInsets.all(12),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: corTema.withValues(alpha: 0.1),
+              color: corTema.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: corTema.withValues(alpha: 0.3)),
+              border: Border.all(color: corTema.withOpacity(0.3)),
             ),
             child: Row(
               children: [
                 Icon(iconeTema, color: corTema, size: 30),
-                SizedBox(width: 15),
+                const SizedBox(width: 15),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(isEntrega ? "ENTREGA DE ENCOMENDA" : "TRANSPORTE DE PASSAGEIRO",
                         style: TextStyle(fontWeight: FontWeight.bold, color: corTema, fontSize: 13)),
                     if (isEntrega && itemEntrega != null)
-                      Text("Item: $itemEntrega", style: TextStyle(color: Colors.black87, fontSize: 16)),
+                      Text("Item: $itemEntrega", style: const TextStyle(color: Colors.black87, fontSize: 16)),
                   ],
                 ),
               ],
             ),
           ),
 
-          SizedBox(height: 20),
+          const SizedBox(height: 20),
 
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(backgroundColor: Colors.grey[200], child: Icon(Icons.location_on, color: Colors.red)),
-            title: Text(endereco, style: TextStyle(fontWeight: FontWeight.w500)),
-            subtitle: Text("Destino Final"),
+            leading: CircleAvatar(backgroundColor: Colors.grey[200], child: const Icon(Icons.location_on, color: Colors.red)),
+            title: Text(endereco, style: const TextStyle(fontWeight: FontWeight.w500)),
+            subtitle: const Text("Destino Final"),
           ),
 
           ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: CircleAvatar(backgroundColor: Colors.grey[200], child: Icon(Icons.person, color: Colors.black)),
+            leading: CircleAvatar(backgroundColor: Colors.grey[200], child: const Icon(Icons.person, color: Colors.black)),
             title: Text(nome),
-            subtitle: Text("Solicitante"),
+            subtitle: const Text("Solicitante"),
           ),
 
           if (obs.isNotEmpty)
             Container(
-              margin: EdgeInsets.only(bottom: 20),
-              padding: EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(color: Colors.yellow[50], borderRadius: BorderRadius.circular(8)),
               child: Row(
                 children: [
                   Icon(Icons.info_outline, size: 18, color: Colors.orange[800]),
-                  SizedBox(width: 8),
+                  const SizedBox(width: 8),
                   Expanded(child: Text(obs, style: TextStyle(color: Colors.orange[900], fontStyle: FontStyle.italic))),
                 ],
               ),
             ),
 
-          SizedBox(height: 10),
+          const SizedBox(height: 10),
 
           SizedBox(
             height: 55,
@@ -137,16 +135,16 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               icon: _processando
-                  ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : Icon(Icons.phone),
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.check_circle),
               label: Text(_processando ? "GARANTINDO CORRIDA..." : "ACEITAR CORRIDA"),
               onPressed: _processando ? null : _tentarAceitarCorrida,
             ),
           ),
 
-          SizedBox(height: 10),
-          Center(
-            child: Text("Ao aceitar, você será redirecionado para o WhatsApp.",
+          const SizedBox(height: 10),
+          const Center(
+            child: Text("Ao aceitar, os dados serão vinculados ao histórico.",
                 style: TextStyle(fontSize: 10, color: Colors.grey)),
           ),
         ],
@@ -164,7 +162,7 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
     final corridaId = widget.pedido['id'].toString();
 
     try {
-      // Aceite atômico via função RPC (evita corrida dupla)
+      // 1. ACEITE ATÔMICO (RPC) - Garante que ninguém mais pegue a corrida
       final aceito = await supabase.rpc('aceitar_corrida', params: {
         'p_corrida_id': corridaId,
         'p_motoboy_id': motoboyId,
@@ -173,33 +171,44 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
       if (!mounted) return;
 
       if (aceito == true) {
-        // Notifica o cliente que o motoboy aceitou
-        final idCliente  = widget.pedido['id_solicitante']?.toString() ?? '';
-        final nomeMoto   = (await Supabase.instance.client
+        // 2. BUSCA OS DADOS DO MOTOBOY PARA O CARIMBO
+        final perfilMoto = await supabase
             .from('usuarios')
-            .select('nome')
+            .select('nome, telefone, moto_placa')
             .eq('id', motoboyId)
-            .maybeSingle())?['nome'] as String? ?? 'Motoboy';
+            .single();
+
+        // 3. SALVA OS DADOS DESCRITIVOS NA CORRIDA (CARIMBO)
+        await supabase.from('corridas').update({
+          'motoboy_nome':  perfilMoto['nome'],
+          'motoboy_tel':   perfilMoto['telefone'],
+          'motoboy_placa': perfilMoto['moto_placa'],
+          'data_aceite':   DateTime.now().toIso8601String(),
+        }).eq('id', corridaId);
+
+        // 4. NOTIFICA O CLIENTE
+        final idCliente = widget.pedido['id_solicitante']?.toString() ?? '';
         if (idCliente.isNotEmpty) {
           await NotificacaoService.corridaAceita(
-              idCliente: idCliente, nomeMotoboy: nomeMoto);
+              idCliente: idCliente, nomeMotoboy: perfilMoto['nome'] ?? 'Motoboy');
         }
+
         if (!mounted) return;
-        Navigator.pop(context);
-        _abrirWhatsApp(widget.pedido);
+        Navigator.pop(context); // Fecha o sheet
+        _abrirWhatsApp(widget.pedido); // Abre o zap com o cliente
+        
       } else {
         setState(() => _processando = false);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Esta corrida já foi pega!"), backgroundColor: Colors.red),
+          const SnackBar(content: Text("Esta corrida já foi pega por outro motoboy!"), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _processando = false);
-        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erro ao aceitar corrida."), backgroundColor: Colors.red),
+          SnackBar(content: Text("Erro ao aceitar corrida: $e"), backgroundColor: Colors.red),
         );
       }
     }
@@ -210,21 +219,11 @@ class _DetalhesCorridaSheetState extends State<DetalhesCorridaSheet> {
     final String nome     = data['nome_solicitante'] ?? 'Cliente';
     final double valor    = (data['valor'] ?? 0).toDouble();
     final String endereco = data['endereco_destino'] ?? 'Endereço na localização';
-    final String obs      = data['observacao'] ?? '';
 
     final String numeroLimpo = telefone.replaceAll(RegExp(r'[^0-9]'), '');
-
-    String mensagem =
-        "Olá *$nome*! 🏍️\n\n"
-        "Acabei de aceitar sua solicitação no App.\n"
-        "💰 Valor: *R\$ ${valor.toStringAsFixed(2)}*\n\n"
-        "📍 *Confirmando Destino:*\n$endereco\n";
-
-    if (obs.isNotEmpty) mensagem += "📝 Obs: $obs\n";
-    mensagem += "\nEstou a caminho!";
+    String mensagem = "Olá *$nome*! 🏍️\nAcabei de aceitar sua corrida no Jaguar Delivery.\n💰 Valor: *R\$ ${valor.toStringAsFixed(2)}*\n📍 Destino: $endereco\nEstou a caminho!";
 
     final url = Uri.parse("https://wa.me/55$numeroLimpo?text=${Uri.encodeComponent(mensagem)}");
-
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     }

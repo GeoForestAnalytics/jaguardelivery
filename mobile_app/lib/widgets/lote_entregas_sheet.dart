@@ -177,36 +177,54 @@ class _LoteEntregasSheetState extends State<LoteEntregasSheet> {
   }
 
   Future<void> _aceitar() async {
+    if (_aceitando) return;
     setState(() => _aceitando = true);
-    final motoboyId = _supabase.auth.currentUser?.id;
-    if (motoboyId == null) return;
+    
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
 
     try {
-      // Aceita todos os selecionados
-      for (final id in _selecionados) {
-        await _supabase.from('pedidos').update({
-          'status':     'ACEITO',
-          'motoboy_id': motoboyId,
-        }).eq('id', id);
-      }
+      // 1. BUSCA O PERFIL
+      final res = await _supabase
+          .from('usuarios')
+          .select('nome, telefone, moto_placa')
+          .eq('id', user.id)
+          .single();
 
+      final String nome   = res['nome'] ?? 'Sem Nome';
+      final String tel    = res['telefone'] ?? '---';
+      final String placa  = res['moto_placa'] ?? '---';
+
+      // AVISO DE DEBUG: Vai aparecer na tela do seu celular o nome que ele achou
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gravando aceite para: $nome'), backgroundColor: Colors.blue)
+      );
+
+      // 2. ATUALIZA OS PEDIDOS
+      final listaIds = _selecionados.toList();
+      await _supabase.from('pedidos').update({
+        'status':        'ACEITO',
+        'motoboy_id':    user.id,
+        'motoboy_nome':  nome,
+        'motoboy_tel':   tel,
+        'motoboy_placa': placa,
+      }).inFilter('id', listaIds);
+
+      // 3. SEGUE PARA O MONITORAMENTO
       final pedidosAceitos = widget.pedidos
           .where((p) => _selecionados.contains(p['id']))
           .toList();
 
       if (mounted) {
         Navigator.pop(context);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => MonitoramentoEntregasPage(pedidos: pedidosAceitos),
-          ),
-        );
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => MonitoramentoEntregasPage(pedidos: pedidosAceitos),
+        ));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro ao aceitar: $e'),
+          content: Text('ERRO CRÍTICO: $e'),
           backgroundColor: Colors.red,
         ));
         setState(() => _aceitando = false);

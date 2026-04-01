@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:brasil_fields/brasil_fields.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 
 import '../../providers/user_provider.dart';
 import '../home/selecionar_destino_page.dart';
@@ -24,7 +23,7 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
   final _clienteNomeController = TextEditingController();
   final _clienteTelController  = TextEditingController();
   final _descricaoController   = TextEditingController();
-  final _valorController       = TextEditingController();
+  final _valorController       = TextEditingController(); // Agora representa o VALOR DO PRODUTO
 
   String? _enderecoDestino;
 
@@ -119,6 +118,10 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
     final perfilAsync = ref.watch(userProfileProvider);
     final enderecoOrigem = perfilAsync.valueOrNull?['endereco_comercio'] ?? '';
 
+    // Cálculo em tempo real para o resumo visual
+    double valorProd = double.tryParse(_valorController.text.replaceAll(',', '.')) ?? 0.0;
+    double totalGeral = valorProd + (_valorFrete ?? 0.0);
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
@@ -134,7 +137,6 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Origem (somente leitura — vem do perfil)
               if (enderecoOrigem.isNotEmpty) ...[
                 _SectionHeader(label: 'Origem'),
                 _InfoCard(
@@ -145,7 +147,6 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
                 const SizedBox(height: 16),
               ],
 
-              // Dados do cliente
               _SectionHeader(label: 'Dados do cliente'),
               const SizedBox(height: 8),
               _buildField(
@@ -169,7 +170,6 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
               ),
               const SizedBox(height: 16),
 
-              // Destino
               _SectionHeader(label: 'Destino'),
               const SizedBox(height: 8),
               InkWell(
@@ -246,35 +246,32 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
                 const SizedBox(height: 16),
               ],
 
-              // Pedido
               _SectionHeader(label: 'Pedido'),
               const SizedBox(height: 8),
               _buildField(
                 controller: _descricaoController,
-                label: 'Descrição do pedido',
+                label: 'O que está sendo enviado?',
                 icone: Icons.description_outlined,
-                maxLines: 3,
+                maxLines: 2,
                 hint: 'Ex: 1 pizza calabresa, 1 refrigerante 2L',
               ),
               const SizedBox(height: 12),
               _buildField(
                 controller: _valorController,
-                label: 'Valor total (R\$)',
-                icone: Icons.attach_money,
+                label: 'Valor do Produto (R\$)',
+                icone: Icons.shopping_bag_outlined,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
                 ],
+                onChanged: (v) => setState(() {}), // Atualiza o resumo do total
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Informe o valor';
-                  final parsed = double.tryParse(v.replaceAll(',', '.'));
-                  if (parsed == null || parsed <= 0) return 'Valor inválido';
+                  if (v == null || v.trim().isEmpty) return 'Informe o valor do produto';
                   return null;
                 },
               ),
               const SizedBox(height: 16),
 
-              // Forma de pagamento
               _SectionHeader(label: 'Forma de pagamento'),
               const SizedBox(height: 8),
               Card(
@@ -293,7 +290,27 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
                 ),
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
+
+              // RESUMO FINAL
+              if (_valorFrete != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!)
+                  ),
+                  child: Column(
+                    children: [
+                      const Text('TOTAL DA ENTREGA (PRODUTO + FRETE)', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      Text('R\$ ${totalGeral.toStringAsFixed(2)}', 
+                        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 16),
 
               SizedBox(
                 height: 52,
@@ -332,6 +349,7 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
     TextInputType? keyboardType,
     List<TextInputFormatter>? inputFormatters,
     int maxLines = 1,
+    Function(String)? onChanged,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
@@ -340,6 +358,7 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
       inputFormatters: inputFormatters,
       maxLines: maxLines,
       validator: validator,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
@@ -381,8 +400,10 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
     }
 
     try {
-      final valorStr = _valorController.text.trim().replaceAll(',', '.');
-      final valor = double.parse(valorStr);
+      final valorProduto = double.tryParse(_valorController.text.trim().replaceAll(',', '.')) ?? 0.0;
+      final valorFreteCalc = _valorFrete ?? 0.0;
+      final valorTotalGeral = valorProduto + valorFreteCalc;
+      
       final telLimpo = UtilBrasilFields.removeCaracteres(_clienteTelController.text);
 
       await _supabase.from('pedidos').insert({
@@ -391,7 +412,9 @@ class _NovaEntregaPageState extends ConsumerState<NovaEntregaPage> {
         'cliente_tel':      telLimpo,
         'endereco_destino': _enderecoDestino ?? '',
         'descricao':        _descricaoController.text.trim(),
-        'valor_total':      valor,
+        'valor_produto':    valorProduto,
+        'valor_frete':      valorFreteCalc,
+        'valor_total':      valorTotalGeral,
         'forma_pagamento':  _formaPagamento,
         'status':           'PENDENTE',
         'criado_em':        DateTime.now().toIso8601String(),

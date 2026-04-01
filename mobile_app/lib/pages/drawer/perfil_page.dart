@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PerfilPage extends StatefulWidget {
   @override
@@ -153,7 +154,7 @@ class _PerfilPageState extends State<PerfilPage> {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
+                    color: Colors.black.withOpacity(0.05),
                     blurRadius: 10,
                     offset: Offset(0, 4))
               ],
@@ -170,7 +171,7 @@ class _PerfilPageState extends State<PerfilPage> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: corTema.withValues(alpha: 0.2), width: 3),
+                              color: corTema.withOpacity(0.2), width: 3),
                         ),
                         child: CircleAvatar(
                           radius: 65,
@@ -249,6 +250,8 @@ class _PerfilPageState extends State<PerfilPage> {
                   ],
 
                   SizedBox(height: 30),
+
+                  // BOTÃO SALVAR
                   SizedBox(
                     width: double.infinity,
                     height: 50,
@@ -264,6 +267,34 @@ class _PerfilPageState extends State<PerfilPage> {
                         _isLoading ? "SALVANDO..." : "SALVAR ALTERAÇÕES",
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 16),
+
+                  // BOTÃO SUPORTE (WhatsApp)
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: corTema),
+                        foregroundColor: corTema,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                      ),
+                      onPressed: () async {
+                        final telSuporte = "5515981409153";
+                        final url = "https://wa.me/$telSuporte?text=Olá, preciso de ajuda com o Jaguar Delivery";
+                        final uri = Uri.parse(url);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      icon: const Icon(Icons.support_agent),
+                      label: const Text("FALAR COM O SUPORTE", 
+                        style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -300,7 +331,7 @@ class _PerfilPageState extends State<PerfilPage> {
       decoration: BoxDecoration(
         color: corFundo,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: corTexto.withValues(alpha: 0.3)),
+        border: Border.all(color: corTexto.withOpacity(0.3)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,

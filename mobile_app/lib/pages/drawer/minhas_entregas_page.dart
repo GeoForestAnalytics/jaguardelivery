@@ -12,11 +12,14 @@ class MinhasEntregasPage extends StatefulWidget {
 
 class _MinhasEntregasPageState extends State<MinhasEntregasPage> {
   final _supabase = Supabase.instance.client;
-
   String _campoBusca = 'id_solicitante';
-  bool _isMotoboy    = false;
-  bool _loading      = true;
-  List<Map<String, dynamic>> _docs = [];
+  String _tipoUsuario = 'CLIENTE';
+  bool _isMotoboy = false;
+  bool _loading = true;
+  
+  // Controle de Filtro
+  String _filtroSelecionado = 'Hoje'; // Opções: 'Hoje', 'Semana', 'Mês', 'Todas'
+  List<Map<String, dynamic>> _dadosExibidos = [];
 
   @override
   void initState() {
@@ -24,259 +27,246 @@ class _MinhasEntregasPageState extends State<MinhasEntregasPage> {
     _definirTipoUsuario();
   }
 
-  Future<void> _exportarCSV() async {
-    if (_docs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhum dado para exportar')));
-      return;
-    }
-    final linhas = <String>['Data,Endereço,Valor (R\$),Status'];
-    for (final d in _docs) {
-      final dataStr = d['data_finalizacao'] != null
-          ? DateFormat('dd/MM/yyyy HH:mm')
-              .format(DateTime.parse(d['data_finalizacao']))
-          : 'sem data';
-      final endereco =
-          (d['endereco_destino'] ?? '').toString().replaceAll(',', ';');
-      final valor = (d['valor'] ?? 0).toStringAsFixed(2);
-      final status = d['status'] ?? '';
-      linhas.add('$dataStr,$endereco,$valor,$status');
-    }
-    final csv = linhas.join('\n');
-    final dir  = await getTemporaryDirectory();
-    final file = File('${dir.path}/historico_entregas.csv');
-    await file.writeAsString(csv);
-    await Share.shareXFiles(
-      [XFile(file.path, mimeType: 'text/csv')],
-      subject: 'Histórico de Entregas',
-    );
-  }
-
   void _definirTipoUsuario() async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
-
-    final data = await _supabase
-        .from('usuarios')
-        .select('tipo')
-        .eq('id', userId)
-        .maybeSingle();
-
+    final data = await _supabase.from('usuarios').select('tipo').eq('id', userId).maybeSingle();
     if (data != null && mounted) {
       final String tipo = data['tipo']?.toString().toUpperCase() ?? 'CLIENTE';
       setState(() {
-        _isMotoboy  = tipo == 'MOTOBOY';
-        _campoBusca = _isMotoboy ? 'id_motoboy' : 'id_solicitante';
-        _loading    = false;
+        _tipoUsuario = tipo;
+        _isMotoboy = tipo == 'MOTOBOY';
+        _campoBusca = (tipo == 'COMERCIO') ? 'comercio_id' : (_isMotoboy ? 'id_motoboy' : 'id_solicitante');
+        _loading = false;
       });
     }
   }
 
+  // Lógica para filtrar a lista baseada no tempo
+  List<Map<String, dynamic>> _aplicarFiltro(List<Map<String, dynamic>> docs) {
+    final agora = DateTime.now();
+    
+    return docs.where((doc) {
+      if (doc['data_finalizacao'] == null) return false;
+      final dataPed = DateTime.parse(doc['data_finalizacao']);
+
+      if (_filtroSelecionado == 'Hoje') {
+        return dataPed.year == agora.year && dataPed.month == agora.month && dataPed.day == agora.day;
+      } else if (_filtroSelecionado == 'Semana') {
+        final seteDiasAtras = agora.subtract(Duration(days: 7));
+        return dataPed.isAfter(seteDiasAtras);
+      } else if (_filtroSelecionado == 'Mês') {
+        return dataPed.year == agora.year && dataPed.month == agora.month;
+      }
+      return true; // 'Todas'
+    }).toList();
+  }
+
+  Future<void> _exportarCSV() async {
+    if (_dadosExibidos.isEmpty) return;
+    final linhas = <String>['Data,Cliente,Endereco,Produto,V. Produto,V. Frete,Total,Motoboy,Placa,Status'];
+    for (final d in _dadosExibidos) {
+      final dataStr = d['data_finalizacao'] != null ? DateFormat('dd/MM/yyyy HH:mm').format(DateTime.parse(d['data_finalizacao'])) : '---';
+      linhas.add([
+        dataStr,
+        d['cliente_nome'] ?? '',
+        (d['endereco_destino'] ?? '').toString().replaceAll(',', ';'),
+        (d['descricao'] ?? '').toString().replaceAll(',', ';'),
+        d['valor_produto'] ?? '0',
+        d['valor_frete'] ?? '0',
+        d['valor_total'] ?? d['valor'] ?? '0',
+        d['motoboy_nome'] ?? '',
+        d['motoboy_placa'] ?? '',
+        d['status'] ?? ''
+      ].join(','));
+    }
+    final file = File('${(await getTemporaryDirectory()).path}/relatorio_jaguar_${_filtroSelecionado.toLowerCase()}.csv');
+    await file.writeAsString(linhas.join('\n'));
+    await Share.shareXFiles([XFile(file.path)], subject: 'Relatório Jaguar - $_filtroSelecionado');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final userId   = _supabase.auth.currentUser?.id;
-    Color corTema  = _isMotoboy ? Colors.green[800]! : Colors.blue[800]!;
+    final userId = _supabase.auth.currentUser?.id;
+    Color corTema = (_tipoUsuario == 'COMERCIO') ? const Color(0xFF6A1B9A) : (_isMotoboy ? Colors.green[800]! : Colors.blue[800]!);
 
-    if (_loading) {
-      return Scaffold(
-        appBar: AppBar(title: Text("Carregando...")),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: Text(_isMotoboy ? "Minhas Entregas" : "Meus Pedidos"),
+        title: Text(_tipoUsuario == 'COMERCIO' ? "Histórico de Vendas" : "Meus Pedidos"),
         backgroundColor: corTema,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.file_download_outlined),
-            tooltip: 'Exportar CSV',
-            onPressed: _exportarCSV,
-          ),
-        ],
+        actions: [IconButton(icon: const Icon(Icons.file_download), onPressed: _exportarCSV)],
       ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: userId != null
-            ? _supabase
-                .from('corridas')
-                .stream(primaryKey: ['id'])
-                .eq(_campoBusca, userId)
+            ? _supabase.from(_tipoUsuario == 'COMERCIO' ? 'pedidos' : 'corridas').stream(primaryKey: ['id']).eq(_campoBusca, userId)
             : const Stream.empty(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) return Center(child: CircularProgressIndicator());
-
-          // Filtra apenas as finalizadas
-          final docs = snapshot.data!
-              .where((c) => c['status'] == 'FINALIZADO')
-              .toList();
-
-          // Mantém referência para exportação CSV
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          
+          // Filtra primeiro por FINALIZADO e depois pelo tempo selecionado
+          final todosFinalizados = snapshot.data!.where((c) => c['status'] == 'FINALIZADO').toList();
+          final docs = _aplicarFiltro(todosFinalizados);
+          
+          // Guarda para o exportar CSV
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _docs.length != docs.length) {
-              setState(() => _docs = docs);
-            }
+            if (mounted) _dadosExibidos = docs;
           });
 
-          if (docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history, size: 80, color: Colors.grey[300]),
-                  Text("Nenhum histórico encontrado."),
-                ],
-              ),
-            );
-          }
+          double totalFaturado = 0;
+          for (var d in docs) totalFaturado += (d['valor_total'] ?? d['valor'] ?? 0).toDouble();
 
-          int totalPedidos = docs.length;
-          double valorTotal = 0;
-          Duration tempoTotalAcumulado = Duration.zero;
-          int corridasComTempo = 0;
-
-          for (final data in docs) {
-            valorTotal += (data['valor'] ?? 0).toDouble();
-
-            if (data['data_aceite'] != null && data['data_finalizacao'] != null) {
-              final inicio = DateTime.parse(data['data_aceite']);
-              final fim    = DateTime.parse(data['data_finalizacao']);
-              if (fim.isAfter(inicio)) {
-                tempoTotalAcumulado += fim.difference(inicio);
-                corridasComTempo++;
-              }
-            }
-          }
-
-          double ticketMedio    = totalPedidos > 0 ? valorTotal / totalPedidos : 0;
-          int tempoMedioMinutos = corridasComTempo > 0
-              ? (tempoTotalAcumulado.inMinutes / corridasComTempo).round()
-              : 0;
-
-          return ListView(
-            padding: EdgeInsets.all(16),
+          return Column(
             children: [
-              _cardGrande(
-                icon: Icons.timer,
-                titulo: "Tempo Médio de Entrega",
-                valor: "$tempoMedioMinutos min",
-                cor: Colors.orange[800]!,
-              ),
-              SizedBox(height: 15),
-              Row(
-                children: [
-                  Expanded(child: _cardPequeno("Total Pedidos", "$totalPedidos", Icons.list_alt, Colors.blue)),
-                  SizedBox(width: 10),
-                  Expanded(child: _cardPequeno("Valor Total", "R\$ ${valorTotal.toStringAsFixed(2)}", Icons.monetization_on, Colors.green)),
-                ],
-              ),
-              SizedBox(height: 10),
-              _cardLinha("Média por Pedido", "R\$ ${ticketMedio.toStringAsFixed(2)}", Icons.analytics),
-              SizedBox(height: 20),
-              Text("Histórico Recente",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.grey[800])),
-              SizedBox(height: 10),
-              ...docs.reversed.take(10).map((data) {
-                final String destino    = data['endereco_destino'] ?? 'Destino não informado';
-                final String ruaDestino = destino.split(',')[0];
-                final DateTime? dataFinal = data['data_finalizacao'] != null
-                    ? DateTime.parse(data['data_finalizacao'])
-                    : null;
-                final String dataFormatada = dataFinal != null
-                    ? DateFormat('dd/MM - HH:mm').format(dataFinal)
-                    : 'Data desc.';
-
-                return Card(
-                  margin: EdgeInsets.only(bottom: 8),
-                  elevation: 2,
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.grey[200],
-                      child: Icon(
-                          _isMotoboy ? Icons.person : Icons.two_wheeler,
-                          color: Colors.grey[700]),
-                    ),
-                    title: Text(ruaDestino, style: TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(dataFormatada),
-                    trailing: Text(
-                      "R\$ ${(data['valor'] ?? 0).toStringAsFixed(2)}",
-                      style: TextStyle(color: Colors.green[800], fontWeight: FontWeight.bold),
-                    ),
+              // Barra de Filtros
+              Container(
+                color: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: ['Hoje', 'Semana', 'Mês', 'Todas'].map((filtro) {
+                      bool selecionado = _filtroSelecionado == filtro;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(filtro),
+                          selected: selecionado,
+                          onSelected: (val) => setState(() => _filtroSelecionado = filtro),
+                          selectedColor: corTema.withOpacity(0.2),
+                          labelStyle: TextStyle(color: selecionado ? corTema : Colors.grey[600], fontWeight: selecionado ? FontWeight.bold : FontWeight.normal),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                );
-              }),
+                ),
+              ),
+
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _CardResumo(total: totalFaturado, qtd: docs.length, cor: corTema, periodo: _filtroSelecionado),
+                    const SizedBox(height: 20),
+                    Text("RESULTADOS: $_filtroSelecionado", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
+                    const SizedBox(height: 10),
+                    if (docs.isEmpty) 
+                      Center(child: Padding(
+                        padding: const EdgeInsets.all(40.0),
+                        child: Text("Nenhuma venda neste período.", style: TextStyle(color: Colors.grey)),
+                      ))
+                    else
+                      ...docs.reversed.map((data) => _ItemHistoricoClean(data: data)),
+                  ],
+                ),
+              ),
             ],
           );
         },
       ),
     );
   }
+}
 
-  Widget _cardGrande({required IconData icon, required String titulo, required String valor, required Color cor}) {
+class _CardResumo extends StatelessWidget {
+  final double total; final int qtd; final Color cor; final String periodo;
+  const _CardResumo({required this.total, required this.qtd, required this.cor, required this.periodo});
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: Offset(0, 4))],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(color: cor.withValues(alpha: 0.1), shape: BoxShape.circle),
-            child: Icon(icon, color: cor, size: 32),
-          ),
-          SizedBox(width: 20),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(titulo, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-              Text(valor, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 26, color: Colors.black87)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _cardPequeno(String titulo, String valor, IconData icon, Color cor) {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: cor),
-          SizedBox(height: 8),
-          Text(titulo, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-          Text(valor, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
-        ],
-      ),
-    );
-  }
-
-  Widget _cardLinha(String titulo, String valor, IconData icon) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(8)),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: cor, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: cor.withOpacity(0.3), blurRadius: 10, offset: Offset(0, 5))]),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(children: [
-            Icon(icon, size: 18, color: Colors.grey[600]),
-            SizedBox(width: 8),
-            Text(titulo, style: TextStyle(color: Colors.grey[700])),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("Total $periodo", style: TextStyle(color: Colors.white70, fontSize: 12)),
+            Text("R\$ ${total.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           ]),
-          Text(valor, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            const Text("Vendas", style: TextStyle(color: Colors.white70, fontSize: 12)),
+            Text("$qtd", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+          ]),
         ],
       ),
+    );
+  }
+}
+
+class _ItemHistoricoClean extends StatelessWidget {
+  final Map<String, dynamic> data;
+  const _ItemHistoricoClean({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final dataFinal = data['data_finalizacao'] != null ? DateFormat('dd/MM HH:mm').format(DateTime.parse(data['data_finalizacao'])) : '---';
+    final valorTotal = (data['valor_total'] ?? data['valor'] ?? 0).toDouble();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[300]!)),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: const Icon(Icons.check_circle, color: Colors.green),
+        title: Text(data['cliente_nome'] ?? 'Cliente', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        subtitle: Text("$dataFinal • R\$ ${valorTotal.toStringAsFixed(2)}", style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w600)),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.grey[50],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _row("📍 Destino", data['endereco_destino'] ?? '---'),
+                _row("📦 Produto", data['descricao'] ?? '---'),
+                const Divider(),
+                Row(
+                  children: [
+                    Expanded(child: _mini("Valor Produto", "R\$ ${data['valor_produto'] ?? '0.00'}")),
+                    Expanded(child: _mini("Taxa Entrega", "R\$ ${data['valor_frete'] ?? '0.00'}")),
+                  ],
+                ),
+                const Divider(),
+                const Text("DADOS DO ENTREGADOR", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                _row("🏍️ Motoboy", data['motoboy_nome'] ?? 'Não informado'),
+                _row("🔢 Placa", data['motoboy_placa'] ?? '---'),
+                _row("📞 Tel Motoboy", data['motoboy_tel'] ?? '---'),
+                _row("📱 Tel Cliente", data['cliente_tel'] ?? '---'),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String label, String valor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54)),
+          const SizedBox(width: 10),
+          Expanded(child: Text(valor, style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
+  Widget _mini(String label, String valor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+        Text(valor, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+      ],
     );
   }
 }
